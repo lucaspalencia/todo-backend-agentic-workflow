@@ -39,10 +39,10 @@ func (r *TaskRepository) Create(ctx context.Context, t *task.Task) error {
 
 func (r *TaskRepository) FindByID(ctx context.Context, id string) (*task.Task, error) {
 	row := r.pool.QueryRow(ctx,
-		`SELECT id, title, description, status, created_at, updated_at FROM tasks WHERE id = $1`, id)
+		`SELECT id, title, description, status, created_at, updated_at, deleted_at FROM tasks WHERE id = $1 AND deleted_at IS NULL`, id)
 
 	t := &task.Task{}
-	err := row.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt)
+	err := row.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.DeletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -54,7 +54,7 @@ func (r *TaskRepository) FindByID(ctx context.Context, id string) (*task.Task, e
 
 func (r *TaskRepository) FindAll(ctx context.Context) ([]task.Task, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT id, title, description, status, created_at, updated_at FROM tasks ORDER BY created_at DESC`)
+		`SELECT id, title, description, status, created_at, updated_at, deleted_at FROM tasks WHERE deleted_at IS NULL ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (r *TaskRepository) FindAll(ctx context.Context) ([]task.Task, error) {
 	var tasks []task.Task
 	for rows.Next() {
 		var t task.Task
-		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.CreatedAt, &t.UpdatedAt, &t.DeletedAt); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, t)
@@ -80,6 +80,6 @@ func (r *TaskRepository) Save(ctx context.Context, t *task.Task) error {
 }
 
 func (r *TaskRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, id)
+	_, err := r.pool.Exec(ctx, `UPDATE tasks SET deleted_at = now() WHERE id = $1`, id)
 	return err
 }
