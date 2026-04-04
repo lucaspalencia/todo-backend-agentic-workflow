@@ -27,6 +27,19 @@ func (s *stubTaskCreator) UpdateTask(_ context.Context, _ string, _ apptask.Upda
 	return s.task, s.err
 }
 
+func (s *stubTaskCreator) DeleteTask(_ context.Context, _ string) error { return s.err }
+
+func (s *stubTaskCreator) ListTasks(_ context.Context) ([]domtask.Task, error) {
+	if s.task != nil {
+		return []domtask.Task{*s.task}, s.err
+	}
+	return []domtask.Task{}, s.err
+}
+
+func (s *stubTaskCreator) GetTaskByID(_ context.Context, _ string) (*domtask.Task, error) {
+	return s.task, s.err
+}
+
 func TestTaskHandler_Create_ValidRequest_Returns201(t *testing.T) {
 	stub := &stubTaskCreator{task: &domtask.Task{
 		ID: "abc", Title: "Buy milk", Status: domtask.StatusPending,

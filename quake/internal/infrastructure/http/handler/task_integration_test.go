@@ -284,3 +284,253 @@ func TestIntegration_UpdateTask_MissingAPIKey_Returns401(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }
+
+// --- helpers for delete / list / get ---
+
+func deleteTask(t *testing.T, srv *httptest.Server, id string, apiKey string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/tasks/"+id, nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	return resp
+}
+
+func getTask(t *testing.T, srv *httptest.Server, id string, apiKey string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/tasks/"+id, nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	return resp
+}
+
+func listTasks(t *testing.T, srv *httptest.Server, apiKey string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	return resp
+}
+
+// --- DELETE /tasks/{id} ---
+
+func TestIntegration_DeleteTask_Success_Returns204(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+
+	resp := deleteTask(t, srv, id, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", resp.StatusCode)
+	}
+}
+
+func TestIntegration_DeleteTask_VerifyTaskAbsent(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+
+	del := deleteTask(t, srv, id, integrationAPIKey)
+	del.Body.Close()
+	if del.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete: expected 204, got %d", del.StatusCode)
+	}
+
+	get := getTask(t, srv, id, integrationAPIKey)
+	defer get.Body.Close()
+	if get.StatusCode != http.StatusNotFound {
+		t.Fatalf("get after delete: expected 404, got %d", get.StatusCode)
+	}
+}
+
+func TestIntegration_DeleteTask_NotFound_Returns404(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := deleteTask(t, srv, "00000000-0000-0000-0000-000000000000", integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] == nil {
+		t.Error("expected error field in response")
+	}
+}
+
+func TestIntegration_DeleteTask_MissingAPIKey_Returns401(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := deleteTask(t, srv, "any-id", "")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+// --- GET /tasks ---
+
+func TestIntegration_ListTasks_Empty_ReturnsEmptyArray(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := listTasks(t, srv, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body []any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("expected empty array, got %d items", len(body))
+	}
+}
+
+func TestIntegration_ListTasks_ExcludesDeletedTasks(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id1 := createTaskForUpdate(t, srv)
+	postTask(t, srv, `{"title":"Task to keep"}`, integrationAPIKey).Body.Close()
+
+	del := deleteTask(t, srv, id1, integrationAPIKey)
+	del.Body.Close()
+
+	resp := listTasks(t, srv, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(body) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(body))
+	}
+	if body[0]["title"] != "Task to keep" {
+		t.Errorf("expected title=%q, got %v", "Task to keep", body[0]["title"])
+	}
+}
+
+func TestIntegration_ListTasks_MissingAPIKey_Returns401(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := listTasks(t, srv, "")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
+
+// --- GET /tasks/{id} ---
+
+func TestIntegration_GetTaskByID_Success_Returns200(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+
+	resp := getTask(t, srv, id, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["id"] != id {
+		t.Errorf("expected id=%q, got %v", id, body["id"])
+	}
+	if body["title"] != "Task to update" {
+		t.Errorf("expected title=%q, got %v", "Task to update", body["title"])
+	}
+}
+
+func TestIntegration_GetTaskByID_NotFound_Returns404(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := getTask(t, srv, "00000000-0000-0000-0000-000000000000", integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] == nil {
+		t.Error("expected error field in response")
+	}
+}
+
+func TestIntegration_GetTaskByID_DeletedTask_Returns404(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+	deleteTask(t, srv, id, integrationAPIKey).Body.Close()
+
+	resp := getTask(t, srv, id, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for deleted task, got %d", resp.StatusCode)
+	}
+}
+
+func TestIntegration_GetTaskByID_MissingAPIKey_Returns401(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := getTask(t, srv, "any-id", "")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
