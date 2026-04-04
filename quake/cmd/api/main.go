@@ -4,7 +4,8 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/lucaspalencia/todo-backend/internal/application/task"
+	appcomment "github.com/lucaspalencia/todo-backend/internal/application/comment"
+	apptask "github.com/lucaspalencia/todo-backend/internal/application/task"
 	"github.com/lucaspalencia/todo-backend/internal/infrastructure/config"
 	infrahttp "github.com/lucaspalencia/todo-backend/internal/infrastructure/http"
 	"github.com/lucaspalencia/todo-backend/internal/infrastructure/persistence/postgres"
@@ -30,9 +31,12 @@ func main() {
 	slog.Info("database connected")
 
 	taskRepo := postgres.NewTaskRepository(pool)
-	taskSvc := task.NewService(taskRepo)
+	taskSvc := apptask.NewService(taskRepo)
 
-	router := infrahttp.Register(pool, taskSvc, cfg.APIKey)
+	commentRepo := postgres.NewCommentRepository(pool)
+	commentSvc := appcomment.NewService(taskRepo, commentRepo)
+
+	router := infrahttp.Register(pool, taskSvc, commentSvc, cfg.APIKey)
 	server := infrahttp.New(router, cfg.Port)
 
 	if err := server.Start(); err != nil {
