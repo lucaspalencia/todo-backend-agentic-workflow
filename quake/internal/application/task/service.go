@@ -110,6 +110,37 @@ func (s *Service) UpdateTask(ctx context.Context, id string, cmd UpdateTaskCmd) 
 	return t, nil
 }
 
+// DeleteTask soft-deletes the task with the given id.
+// Returns ErrNotFound if the task does not exist or is already deleted.
+func (s *Service) DeleteTask(ctx context.Context, id string) error {
+	t, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t == nil {
+		return task.ErrNotFound
+	}
+	return s.repo.Delete(ctx, id)
+}
+
+// ListTasks returns all non-deleted tasks.
+func (s *Service) ListTasks(ctx context.Context) ([]task.Task, error) {
+	return s.repo.FindAll(ctx)
+}
+
+// GetTaskByID returns the task with the given id.
+// Returns ErrNotFound if the task does not exist or is soft-deleted.
+func (s *Service) GetTaskByID(ctx context.Context, id string) (*task.Task, error) {
+	t, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, task.ErrNotFound
+	}
+	return t, nil
+}
+
 // CreateTask validates the command, builds a Task entity, and persists it.
 func (s *Service) CreateTask(ctx context.Context, cmd CreateTaskCmd) (*task.Task, error) {
 	var errs ValidationErrors

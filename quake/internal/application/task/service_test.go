@@ -180,6 +180,55 @@ func TestUpdateTask_InvalidStatus_ReturnsValidationError(t *testing.T) {
 	assertValidationField(t, err, "status")
 }
 
+func TestDeleteTask_ValidID_ReturnsNil(t *testing.T) {
+	repo := &stubRepo{existing: existingTask()}
+	svc := apptask.NewService(repo)
+	if err := svc.DeleteTask(context.Background(), "abc-123"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteTask_NotFound_ReturnsErrNotFound(t *testing.T) {
+	repo := &stubRepo{existing: nil}
+	svc := apptask.NewService(repo)
+	err := svc.DeleteTask(context.Background(), "missing-id")
+	if !errors.Is(err, domtask.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestListTasks_ReturnsTasks(t *testing.T) {
+	repo := &stubRepo{}
+	svc := apptask.NewService(repo)
+	tasks, err := svc.ListTasks(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// stubRepo.FindAll returns nil slice — no panic, no error
+	_ = tasks
+}
+
+func TestGetTaskByID_ValidID_ReturnsTask(t *testing.T) {
+	repo := &stubRepo{existing: existingTask()}
+	svc := apptask.NewService(repo)
+	got, err := svc.GetTaskByID(context.Background(), "abc-123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != "abc-123" {
+		t.Errorf("expected ID=%q, got %q", "abc-123", got.ID)
+	}
+}
+
+func TestGetTaskByID_NotFound_ReturnsErrNotFound(t *testing.T) {
+	repo := &stubRepo{existing: nil}
+	svc := apptask.NewService(repo)
+	_, err := svc.GetTaskByID(context.Background(), "missing-id")
+	if !errors.Is(err, domtask.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
 func assertValidationField(t *testing.T, err error, field string) {
 	t.Helper()
 	if err == nil {
