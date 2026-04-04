@@ -2,9 +2,7 @@ package postgres
 
 import (
 	"context"
-	"errors"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	domcomment "github.com/lucaspalencia/todo-backend/internal/domain/comment"
@@ -42,9 +40,6 @@ func (r *CommentRepository) FindByTaskID(ctx context.Context, taskID string) ([]
 	for rows.Next() {
 		var c domcomment.Comment
 		if err := rows.Scan(&c.ID, &c.TaskID, &c.Content, &c.CreatedAt); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, nil
-			}
 			return nil, err
 		}
 		comments = append(comments, c)

@@ -8,15 +8,6 @@ import (
 	"testing"
 )
 
-// newIntegrationServerWithTruncate returns a test server that also truncates comments.
-// It reuses newIntegrationServer which already truncates tasks; because comments CASCADE,
-// truncating tasks is enough — but we truncate comments explicitly for safety.
-func newCommentIntegrationServer(t *testing.T) *httptest.Server {
-	t.Helper()
-	// Delegate to the shared helper; it truncates tasks (which cascades to comments).
-	return newIntegrationServer(t)
-}
-
 func postComment(t *testing.T, srv *httptest.Server, taskID, body, apiKey string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/tasks/"+taskID+"/comments", bytes.NewBufferString(body))
