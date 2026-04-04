@@ -144,3 +144,143 @@ func TestIntegration_CreateTask_MissingAPIKey_Returns401(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }
+
+func patchTask(t *testing.T, srv *httptest.Server, id string, body string, apiKey string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+id, bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	return resp
+}
+
+func createTaskForUpdate(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	resp := postTask(t, srv, `{"title":"Task to update","description":"original","status":"pending"}`, integrationAPIKey)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("setup: expected 201, got %d", resp.StatusCode)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("setup: failed to decode: %v", err)
+	}
+	return body["id"].(string)
+}
+
+func TestIntegration_UpdateTask_FullUpdate_Returns200(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+
+	resp := patchTask(t, srv, id, `{"title":"Updated title","description":"updated desc","status":"done"}`, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["title"] != "Updated title" {
+		t.Errorf("expected title=%q, got %v", "Updated title", body["title"])
+	}
+	if body["description"] != "updated desc" {
+		t.Errorf("expected description=%q, got %v", "updated desc", body["description"])
+	}
+	if body["status"] != "done" {
+		t.Errorf("expected status=done, got %v", body["status"])
+	}
+	if body["updated_at"] == "" {
+		t.Error("expected non-empty updated_at")
+	}
+}
+
+func TestIntegration_UpdateTask_SingleField_Returns200(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+
+	resp := patchTask(t, srv, id, `{"status":"in_progress"}`, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if body["title"] != "Task to update" {
+		t.Errorf("expected title unchanged, got %v", body["title"])
+	}
+	if body["description"] != "original" {
+		t.Errorf("expected description unchanged, got %v", body["description"])
+	}
+	if body["status"] != "in_progress" {
+		t.Errorf("expected status=in_progress, got %v", body["status"])
+	}
+}
+
+func TestIntegration_UpdateTask_NotFound_Returns404(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := patchTask(t, srv, "00000000-0000-0000-0000-000000000000", `{"status":"done"}`, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] == nil {
+		t.Error("expected error field in response")
+	}
+}
+
+func TestIntegration_UpdateTask_InvalidStatus_Returns422(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	id := createTaskForUpdate(t, srv)
+
+	resp := patchTask(t, srv, id, `{"status":"INVALID"}`, integrationAPIKey)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", resp.StatusCode)
+	}
+
+	var body map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if body["errors"] == nil {
+		t.Error("expected errors field in response")
+	}
+}
+
+func TestIntegration_UpdateTask_MissingAPIKey_Returns401(t *testing.T) {
+	srv := newIntegrationServer(t)
+	defer srv.Close()
+
+	resp := patchTask(t, srv, "any-id", `{"status":"done"}`, "")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", resp.StatusCode)
+	}
+}
