@@ -9,9 +9,10 @@ import (
 
 // Config holds all runtime configuration loaded from environment variables.
 type Config struct {
-	DBUrl string
-	Port  string
-	Env   string
+	DBUrl  string
+	Port   string
+	Env    string
+	APIKey string
 }
 
 // Load reads a .env file (if present) then populates Config from env vars.
@@ -35,9 +36,15 @@ func Load() (*Config, error) {
 		env = "development"
 	}
 
+	apiKey := os.Getenv("API_KEY")
+	if apiKey == "" {
+		return nil, errors.New("API_KEY is required but not set")
+	}
+
 	return &Config{
-		DBUrl: dbUrl,
-		Port:  port,
-		Env:   env,
+		DBUrl:  dbUrl,
+		Port:   port,
+		Env:    env,
+		APIKey: apiKey,
 	}, nil
 }
