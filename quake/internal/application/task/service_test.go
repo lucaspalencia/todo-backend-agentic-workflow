@@ -11,8 +11,9 @@ import (
 
 // stubRepo is a minimal in-memory task.Repository for testing.
 type stubRepo struct {
-	created *domtask.Task
-	err     error
+	created  *domtask.Task
+	existing *domtask.Task
+	err      error
 }
 
 func (s *stubRepo) Create(_ context.Context, t *domtask.Task) error {
@@ -22,10 +23,15 @@ func (s *stubRepo) Create(_ context.Context, t *domtask.Task) error {
 	s.created = t
 	return nil
 }
-func (s *stubRepo) FindByID(_ context.Context, _ string) (*domtask.Task, error) { return nil, nil }
-func (s *stubRepo) FindAll(_ context.Context) ([]domtask.Task, error)           { return nil, nil }
-func (s *stubRepo) Save(_ context.Context, _ *domtask.Task) error               { return nil }
-func (s *stubRepo) Delete(_ context.Context, _ string) error                    { return nil }
+func (s *stubRepo) FindByID(_ context.Context, _ string) (*domtask.Task, error) {
+	return s.existing, nil
+}
+func (s *stubRepo) FindAll(_ context.Context) ([]domtask.Task, error) { return nil, nil }
+func (s *stubRepo) Save(_ context.Context, t *domtask.Task) error {
+	s.existing = t
+	return nil
+}
+func (s *stubRepo) Delete(_ context.Context, _ string) error { return nil }
 
 func TestCreateTask_ValidInput_ReturnsTask(t *testing.T) {
 	svc := apptask.NewService(&stubRepo{})
@@ -89,6 +95,89 @@ func TestCreateTask_DuplicateTitle_ReturnsErrDuplicateTitle(t *testing.T) {
 	if !errors.Is(err, domtask.ErrDuplicateTitle) {
 		t.Errorf("expected ErrDuplicateTitle, got %v", err)
 	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func existingTask() *domtask.Task {
+	return &domtask.Task{
+		ID:          "abc-123",
+		Title:       "Original title",
+		Description: "Original description",
+		Status:      domtask.StatusPending,
+	}
+}
+
+func TestUpdateTask_AllFields_ReturnsUpdatedTask(t *testing.T) {
+	repo := &stubRepo{existing: existingTask()}
+	svc := apptask.NewService(repo)
+	updated, err := svc.UpdateTask(context.Background(), "abc-123", apptask.UpdateTaskCmd{
+		Title:       strPtr("New title"),
+		Description: strPtr("New description"),
+		Status:      strPtr(domtask.StatusDone),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Title != "New title" {
+		t.Errorf("expected title=%q, got %q", "New title", updated.Title)
+	}
+	if updated.Description != "New description" {
+		t.Errorf("expected description=%q, got %q", "New description", updated.Description)
+	}
+	if updated.Status != domtask.StatusDone {
+		t.Errorf("expected status=%q, got %q", domtask.StatusDone, updated.Status)
+	}
+	if updated.UpdatedAt.IsZero() {
+		t.Error("expected non-zero updated_at")
+	}
+}
+
+func TestUpdateTask_SingleField_LeavesOthersUnchanged(t *testing.T) {
+	repo := &stubRepo{existing: existingTask()}
+	svc := apptask.NewService(repo)
+	updated, err := svc.UpdateTask(context.Background(), "abc-123", apptask.UpdateTaskCmd{
+		Status: strPtr(domtask.StatusInProgress),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Title != "Original title" {
+		t.Errorf("expected title unchanged, got %q", updated.Title)
+	}
+	if updated.Description != "Original description" {
+		t.Errorf("expected description unchanged, got %q", updated.Description)
+	}
+	if updated.Status != domtask.StatusInProgress {
+		t.Errorf("expected status=%q, got %q", domtask.StatusInProgress, updated.Status)
+	}
+}
+
+func TestUpdateTask_NotFound_ReturnsErrNotFound(t *testing.T) {
+	repo := &stubRepo{existing: nil}
+	svc := apptask.NewService(repo)
+	_, err := svc.UpdateTask(context.Background(), "missing-id", apptask.UpdateTaskCmd{})
+	if !errors.Is(err, domtask.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestUpdateTask_EmptyTitle_ReturnsValidationError(t *testing.T) {
+	repo := &stubRepo{existing: existingTask()}
+	svc := apptask.NewService(repo)
+	_, err := svc.UpdateTask(context.Background(), "abc-123", apptask.UpdateTaskCmd{
+		Title: strPtr("   "),
+	})
+	assertValidationField(t, err, "title")
+}
+
+func TestUpdateTask_InvalidStatus_ReturnsValidationError(t *testing.T) {
+	repo := &stubRepo{existing: existingTask()}
+	svc := apptask.NewService(repo)
+	_, err := svc.UpdateTask(context.Background(), "abc-123", apptask.UpdateTaskCmd{
+		Status: strPtr("INVALID"),
+	})
+	assertValidationField(t, err, "status")
 }
 
 func assertValidationField(t *testing.T, err error, field string) {

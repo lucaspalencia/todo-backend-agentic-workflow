@@ -52,6 +52,64 @@ var allowedStatuses = map[string]bool{
 	task.StatusDone:       true,
 }
 
+// UpdateTaskCmd holds the input for the UpdateTask use case.
+// Nil fields mean "not provided — keep the existing value".
+type UpdateTaskCmd struct {
+	Title       *string
+	Description *string
+	Status      *string
+}
+
+// UpdateTask fetches the task by id, applies non-nil fields, refreshes updated_at, and persists.
+func (s *Service) UpdateTask(ctx context.Context, id string, cmd UpdateTaskCmd) (*task.Task, error) {
+	t, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, task.ErrNotFound
+	}
+
+	var errs ValidationErrors
+
+	if cmd.Title != nil {
+		title := strings.TrimSpace(*cmd.Title)
+		if title == "" {
+			errs = append(errs, ValidationError{Field: "title", Message: "title is required"})
+		} else if utf8.RuneCountInString(title) > 255 {
+			errs = append(errs, ValidationError{Field: "title", Message: "title must not exceed 255 characters"})
+		} else {
+			t.Title = title
+		}
+	}
+
+	if cmd.Description != nil {
+		if utf8.RuneCountInString(*cmd.Description) > 2000 {
+			errs = append(errs, ValidationError{Field: "description", Message: "description must not exceed 2000 characters"})
+		} else {
+			t.Description = *cmd.Description
+		}
+	}
+
+	if cmd.Status != nil {
+		if !allowedStatuses[*cmd.Status] {
+			errs = append(errs, ValidationError{Field: "status", Message: "status must be one of: pending, in_progress, done"})
+		} else {
+			t.Status = *cmd.Status
+		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errs
+	}
+
+	t.UpdatedAt = time.Now().UTC()
+	if err := s.repo.Save(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 // CreateTask validates the command, builds a Task entity, and persists it.
 func (s *Service) CreateTask(ctx context.Context, cmd CreateTaskCmd) (*task.Task, error) {
 	var errs ValidationErrors
