@@ -8,6 +8,7 @@ import (
 	"os"
 	"testing"
 
+	appcomment "github.com/lucaspalencia/todo-backend/internal/application/comment"
 	apptask "github.com/lucaspalencia/todo-backend/internal/application/task"
 	infrahttp "github.com/lucaspalencia/todo-backend/internal/infrastructure/http"
 	"github.com/lucaspalencia/todo-backend/internal/infrastructure/persistence/postgres"
@@ -38,7 +39,10 @@ func newIntegrationServer(t *testing.T) *httptest.Server {
 	taskRepo := postgres.NewTaskRepository(pool)
 	taskSvc := apptask.NewService(taskRepo)
 
-	router := infrahttp.Register(pool, taskSvc, integrationAPIKey)
+	commentRepo := postgres.NewCommentRepository(pool)
+	commentSvc := appcomment.NewService(taskRepo, commentRepo)
+
+	router := infrahttp.Register(pool, taskSvc, commentSvc, integrationAPIKey)
 	return httptest.NewServer(router)
 }
 
