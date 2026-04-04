@@ -11,6 +11,7 @@ Task model:
 Requirements:
 - SQL migration to create the tasks table
 - POST /tasks endpoint that accepts JSON body with title, description, and optional status
+- Auth validation, for now we can have only a middleware checking api-key
 - Input validation with descriptive error messages returned as JSON
 - Follow the project's DDD architecture:
   - Task entity and repository interface in the domain layer
