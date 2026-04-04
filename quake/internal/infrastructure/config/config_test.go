@@ -44,6 +44,7 @@ func TestLoad_MissingDBUrl_ReturnsError(t *testing.T) {
 
 func TestLoad_DefaultPort(t *testing.T) {
 	setEnv(t, "DATABASE_URL", "postgres://user:pass@localhost/db")
+	setEnv(t, "API_KEY", "test-key")
 	unsetEnv(t, "PORT")
 	unsetEnv(t, "ENV")
 
