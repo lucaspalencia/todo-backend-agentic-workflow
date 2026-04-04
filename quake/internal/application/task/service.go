@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/lucaspalencia/todo-backend/internal/domain/task"
@@ -58,11 +59,11 @@ func (s *Service) CreateTask(ctx context.Context, cmd CreateTaskCmd) (*task.Task
 	title := strings.TrimSpace(cmd.Title)
 	if title == "" {
 		errs = append(errs, ValidationError{Field: "title", Message: "title is required"})
-	} else if len(title) > 255 {
+	} else if utf8.RuneCountInString(title) > 255 {
 		errs = append(errs, ValidationError{Field: "title", Message: "title must not exceed 255 characters"})
 	}
 
-	if len(cmd.Description) > 2000 {
+	if utf8.RuneCountInString(cmd.Description) > 2000 {
 		errs = append(errs, ValidationError{Field: "description", Message: "description must not exceed 2000 characters"})
 	}
 
