@@ -11,7 +11,7 @@ import (
 )
 
 // Register builds and returns the chi router with all routes mounted.
-func Register(pool handler.Pinger, taskSvc handler.TaskCreator, apiKey string) http.Handler {
+func Register(pool handler.Pinger, taskSvc handler.TaskService, apiKey string) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -23,6 +23,7 @@ func Register(pool handler.Pinger, taskSvc handler.TaskCreator, apiKey string) h
 
 	taskHandler := handler.NewTaskHandler(taskSvc)
 	r.With(appmiddleware.APIKeyAuth(apiKey)).Post("/tasks", taskHandler.Create)
+	r.With(appmiddleware.APIKeyAuth(apiKey)).Patch("/tasks/{id}", taskHandler.Update)
 
 	return r
 }

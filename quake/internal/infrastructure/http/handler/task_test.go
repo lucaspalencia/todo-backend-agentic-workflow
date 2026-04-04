@@ -23,6 +23,10 @@ func (s *stubTaskCreator) CreateTask(_ context.Context, _ apptask.CreateTaskCmd)
 	return s.task, s.err
 }
 
+func (s *stubTaskCreator) UpdateTask(_ context.Context, _ string, _ apptask.UpdateTaskCmd) (*domtask.Task, error) {
+	return s.task, s.err
+}
+
 func TestTaskHandler_Create_ValidRequest_Returns201(t *testing.T) {
 	stub := &stubTaskCreator{task: &domtask.Task{
 		ID: "abc", Title: "Buy milk", Status: domtask.StatusPending,
