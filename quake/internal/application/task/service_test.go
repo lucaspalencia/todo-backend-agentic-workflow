@@ -13,6 +13,7 @@ import (
 type stubRepo struct {
 	created  *domtask.Task
 	existing *domtask.Task
+	tasks    []domtask.Task
 	err      error
 }
 
@@ -26,7 +27,7 @@ func (s *stubRepo) Create(_ context.Context, t *domtask.Task) error {
 func (s *stubRepo) FindByID(_ context.Context, _ string) (*domtask.Task, error) {
 	return s.existing, nil
 }
-func (s *stubRepo) FindAll(_ context.Context) ([]domtask.Task, error) { return nil, nil }
+func (s *stubRepo) FindAll(_ context.Context) ([]domtask.Task, error) { return s.tasks, nil }
 func (s *stubRepo) Save(_ context.Context, t *domtask.Task) error {
 	s.existing = t
 	return nil
@@ -198,14 +199,31 @@ func TestDeleteTask_NotFound_ReturnsErrNotFound(t *testing.T) {
 }
 
 func TestListTasks_ReturnsTasks(t *testing.T) {
-	repo := &stubRepo{}
+	task := existingTask()
+	repo := &stubRepo{tasks: []domtask.Task{*task}}
 	svc := apptask.NewService(repo)
 	tasks, err := svc.ListTasks(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// stubRepo.FindAll returns nil slice — no panic, no error
-	_ = tasks
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if tasks[0].ID != task.ID {
+		t.Errorf("expected ID=%q, got %q", task.ID, tasks[0].ID)
+	}
+}
+
+func TestListTasks_Empty_ReturnsEmptySlice(t *testing.T) {
+	repo := &stubRepo{tasks: []domtask.Task{}}
+	svc := apptask.NewService(repo)
+	tasks, err := svc.ListTasks(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Errorf("expected empty slice, got %d tasks", len(tasks))
+	}
 }
 
 func TestGetTaskByID_ValidID_ReturnsTask(t *testing.T) {

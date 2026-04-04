@@ -80,6 +80,6 @@ func (r *TaskRepository) Save(ctx context.Context, t *task.Task) error {
 }
 
 func (r *TaskRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE tasks SET deleted_at = now() WHERE id = $1`, id)
+	_, err := r.pool.Exec(ctx, `UPDATE tasks SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, id)
 	return err
 }
