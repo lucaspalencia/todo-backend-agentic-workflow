@@ -86,3 +86,56 @@ func (s *Service) CreateTask(ctx context.Context, in CreateTaskInput) (domain.Ta
 
 	return s.repo.Create(ctx, task)
 }
+
+// UpdateTaskInput holds the caller-supplied fields for updating a task.
+// A nil pointer means the field was not provided and should not be changed.
+type UpdateTaskInput struct {
+	ID          string
+	Title       *string
+	Description *string
+	Status      *string
+}
+
+// UpdateTask validates the provided fields, fetches the existing task, merges
+// changes, refreshes updated_at, and persists the result.
+func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (domain.Task, error) {
+	errs := make(map[string]string)
+
+	if in.Title != nil {
+		if strings.TrimSpace(*in.Title) == "" {
+			errs["title"] = "title is required"
+		} else if len(*in.Title) > 255 {
+			errs["title"] = "title must be 255 characters or fewer"
+		}
+	}
+
+	if in.Description != nil && len(*in.Description) > 2000 {
+		errs["description"] = "description must be 2000 characters or fewer"
+	}
+
+	if in.Status != nil && !validStatuses[*in.Status] {
+		errs["status"] = "invalid status: must be pending, in_progress, or done"
+	}
+
+	if len(errs) > 0 {
+		return domain.Task{}, &ValidationError{Fields: errs}
+	}
+
+	task, err := s.repo.GetByID(ctx, in.ID)
+	if err != nil {
+		return domain.Task{}, err
+	}
+
+	if in.Title != nil {
+		task.Title = *in.Title
+	}
+	if in.Description != nil {
+		task.Description = *in.Description
+	}
+	if in.Status != nil {
+		task.Status = *in.Status
+	}
+	task.UpdatedAt = time.Now().UTC()
+
+	return s.repo.Update(ctx, task)
+}
