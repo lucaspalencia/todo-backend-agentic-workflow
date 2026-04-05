@@ -23,7 +23,7 @@ func TestSmokeTest_HealthEndpoint(t *testing.T) {
 	}
 	defer pool.Close()
 
-	router := infrahttp.Register(pool)
+	router := infrahttp.Register(pool, "test-api-key")
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
