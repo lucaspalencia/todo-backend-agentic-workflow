@@ -201,3 +201,200 @@ func TestCreateTask_Integration_Unauthorized(t *testing.T) {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
 }
+
+func TestUpdateTask_Integration_Success(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create a task to update
+	createBody := `{"title":"Original title","description":"Original description","status":"pending"}`
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks", bytes.NewBufferString(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	// Update all fields
+	updateBody := `{"title":"Updated title","description":"Updated description","status":"done"}`
+	req, _ := http.NewRequest(http.MethodPatch, integServer.URL+"/tasks/"+id, bytes.NewBufferString(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /tasks/%s: %v", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if result["title"] != "Updated title" {
+		t.Errorf("expected title 'Updated title', got %v", result["title"])
+	}
+	if result["description"] != "Updated description" {
+		t.Errorf("expected description 'Updated description', got %v", result["description"])
+	}
+	if result["status"] != "done" {
+		t.Errorf("expected status 'done', got %v", result["status"])
+	}
+	if result["updated_at"] == "" || result["updated_at"] == nil {
+		t.Error("expected non-empty updated_at in response")
+	}
+}
+
+func TestUpdateTask_Integration_PartialUpdate(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create a task to update
+	createBody := `{"title":"Keep this title","description":"Keep this description","status":"pending"}`
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks", bytes.NewBufferString(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	// Update only status
+	updateBody := `{"status":"done"}`
+	req, _ := http.NewRequest(http.MethodPatch, integServer.URL+"/tasks/"+id, bytes.NewBufferString(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /tasks/%s: %v", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if result["title"] != "Keep this title" {
+		t.Errorf("expected title unchanged 'Keep this title', got %v", result["title"])
+	}
+	if result["description"] != "Keep this description" {
+		t.Errorf("expected description unchanged 'Keep this description', got %v", result["description"])
+	}
+	if result["status"] != "done" {
+		t.Errorf("expected status 'done', got %v", result["status"])
+	}
+}
+
+func TestUpdateTask_Integration_NotFound(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+
+	req, _ := http.NewRequest(
+		http.MethodPatch,
+		integServer.URL+"/tasks/00000000-0000-0000-0000-000000000000",
+		bytes.NewBufferString(`{"status":"done"}`),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /tasks: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["error"] != "task not found" {
+		t.Errorf("expected error 'task not found', got %v", result["error"])
+	}
+}
+
+func TestUpdateTask_Integration_ValidationError(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create a task first
+	createBody := `{"title":"Valid task"}`
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks", bytes.NewBufferString(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	// Attempt to set title to empty string
+	req, _ := http.NewRequest(http.MethodPatch, integServer.URL+"/tasks/"+id, bytes.NewBufferString(`{"title":""}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH /tasks/%s: %v", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	errs, ok := result["errors"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected 'errors' object in response body, got %v", result)
+	}
+	if _, ok := errs["title"]; !ok {
+		t.Error("expected errors[\"title\"] to be set")
+	}
+}

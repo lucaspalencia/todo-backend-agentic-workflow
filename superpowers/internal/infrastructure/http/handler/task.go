@@ -6,13 +6,21 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	apptask "github.com/lucaspalencia/superpowers/internal/application/task"
+	domaintask "github.com/lucaspalencia/superpowers/internal/domain/task"
 )
 
 type taskRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Status      string `json:"status"`
+}
+
+type updateTaskRequest struct {
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Status      *string `json:"status"`
 }
 
 type taskResponse struct {
@@ -58,6 +66,46 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, taskResponse{
+		ID:          task.ID,
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      task.Status,
+		CreatedAt:   task.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   task.UpdatedAt.Format(time.RFC3339),
+	})
+}
+
+// Update handles PATCH /tasks/{id}. Applies partial updates and returns 200 with the full task.
+func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req updateTaskRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	task, err := h.svc.UpdateTask(r.Context(), apptask.UpdateTaskInput{
+		ID:          id,
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      req.Status,
+	})
+	if err != nil {
+		var ve *apptask.ValidationError
+		if errors.As(err, &ve) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"errors": ve.Fields})
+			return
+		}
+		if errors.Is(err, domaintask.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, taskResponse{
 		ID:          task.ID,
 		Title:       task.Title,
 		Description: task.Description,
