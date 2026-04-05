@@ -115,6 +115,70 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Delete handles DELETE /tasks/{id}. Returns 204 on success, 404 if not found.
+func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	err := h.svc.DeleteTask(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, domaintask.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// List handles GET /tasks. Returns 200 with a JSON array of all active tasks.
+func (h *TaskHandler) List(w http.ResponseWriter, r *http.Request) {
+	tasks, err := h.svc.ListTasks(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	resp := make([]taskResponse, 0, len(tasks))
+	for _, t := range tasks {
+		resp = append(resp, taskResponse{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: t.Description,
+			Status:      t.Status,
+			CreatedAt:   t.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:   t.UpdatedAt.Format(time.RFC3339),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// GetByID handles GET /tasks/{id}. Returns 200 with the task, 404 if not found or deleted.
+func (h *TaskHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	task, err := h.svc.GetTaskByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, domaintask.ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, taskResponse{
+		ID:          task.ID,
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      task.Status,
+		CreatedAt:   task.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   task.UpdatedAt.Format(time.RFC3339),
+	})
+}
+
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
