@@ -26,7 +26,7 @@ func main() {
 	defer pool.Close()
 	slog.Info("database connected")
 
-	router := infrahttp.Register(pool)
+	router := infrahttp.Register(pool, cfg.APIKey)
 	srv := infrahttp.New(router, cfg.Port)
 	slog.Info("server starting", "port", cfg.Port)
 
