@@ -31,14 +31,27 @@ func (e *ValidationError) Error() string {
 	return "validation error: " + strings.Join(parts, "; ")
 }
 
-// Service implements the create task use case.
+// CommentDeleter is satisfied by any type that can remove all comments for a task.
+// The comment repository implements this automatically.
+type CommentDeleter interface {
+	DeleteByTaskID(ctx context.Context, taskID string) error
+}
+
+// Service implements the task use cases.
 type Service struct {
-	repo domain.Repository
+	repo           domain.Repository
+	commentDeleter CommentDeleter
 }
 
 // NewService constructs a Service with the given repository.
 func NewService(repo domain.Repository) *Service {
 	return &Service{repo: repo}
+}
+
+// WithCommentDeleter wires in a comment deleter so that DeleteTask also removes
+// all comments belonging to the task. Safe to call with nil — no-op if unset.
+func (s *Service) WithCommentDeleter(d CommentDeleter) {
+	s.commentDeleter = d
 }
 
 var validStatuses = map[string]bool{
@@ -140,10 +153,18 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (domain.Ta
 	return s.repo.Update(ctx, task)
 }
 
-// DeleteTask soft-deletes a task. Returns domain.ErrNotFound if the task
-// does not exist or has already been deleted.
+// DeleteTask soft-deletes a task and removes its comments. Returns domain.ErrNotFound
+// if the task does not exist or has already been deleted.
 func (s *Service) DeleteTask(ctx context.Context, id string) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return err
+	}
+	if s.commentDeleter != nil {
+		if err := s.commentDeleter.DeleteByTaskID(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListTasks returns all active (non-deleted) tasks ordered by newest first.
