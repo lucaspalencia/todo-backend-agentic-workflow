@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     description TEXT        NOT NULL DEFAULT '',
     status      TEXT        NOT NULL DEFAULT 'pending',
     created_at  TIMESTAMPTZ NOT NULL,
-    updated_at  TIMESTAMPTZ NOT NULL
+    updated_at  TIMESTAMPTZ NOT NULL,
+    deleted_at  TIMESTAMPTZ
 )`
 
 var (
@@ -396,5 +397,422 @@ func TestUpdateTask_Integration_ValidationError(t *testing.T) {
 	}
 	if _, ok := errs["title"]; !ok {
 		t.Error("expected errors[\"title\"] to be set")
+	}
+}
+
+func TestDeleteTask_Integration_Success(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create a task to delete
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks",
+		bytes.NewBufferString(`{"title":"Task to delete"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	// Delete the task
+	delReq, _ := http.NewRequest(http.MethodDelete, integServer.URL+"/tasks/"+id, nil)
+	delReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE /tasks/%s: %v", id, err)
+	}
+	defer delResp.Body.Close()
+
+	if delResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", delResp.StatusCode)
+	}
+
+	// Verify the task is actually gone — GET should return 404
+	getReq, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks/"+id, nil)
+	getReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	getResp, err := http.DefaultClient.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET /tasks/%s: %v", id, err)
+	}
+	defer getResp.Body.Close()
+
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 after delete, got %d", getResp.StatusCode)
+	}
+}
+
+func TestDeleteTask_Integration_NotFound(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+
+	req, _ := http.NewRequest(
+		http.MethodDelete,
+		integServer.URL+"/tasks/00000000-0000-0000-0000-000000000000",
+		nil,
+	)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("DELETE /tasks: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["error"] != "task not found" {
+		t.Errorf("expected error 'task not found', got %v", result["error"])
+	}
+}
+
+func TestDeleteTask_Integration_AlreadyDeleted(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create a task
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks",
+		bytes.NewBufferString(`{"title":"Delete twice"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	del := func() int {
+		req, _ := http.NewRequest(http.MethodDelete, integServer.URL+"/tasks/"+id, nil)
+		req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("DELETE /tasks/%s: %v", id, err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := del(); code != http.StatusNoContent {
+		t.Fatalf("first delete: expected 204, got %d", code)
+	}
+	if code := del(); code != http.StatusNotFound {
+		t.Fatalf("second delete: expected 404, got %d", code)
+	}
+}
+
+func TestListTasks_Integration_Empty(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+
+	req, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks", nil)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result []any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty array, got %d items", len(result))
+	}
+}
+
+func TestListTasks_Integration_NewestFirst(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	create := func(title string) string {
+		req, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks",
+			bytes.NewBufferString(`{"title":"`+title+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST /tasks: %v", err)
+		}
+		defer resp.Body.Close()
+		var result map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("decode create response: %v", err)
+		}
+		id, _ := result["id"].(string)
+		return id
+	}
+
+	id1 := create("First task")
+	id2 := create("Second task")
+
+	req, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks", nil)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(result))
+	}
+	// Newest first: id2 was created after id1
+	if result[0]["id"] != id2 {
+		t.Errorf("expected newest task first (id=%q), got id=%q", id2, result[0]["id"])
+	}
+	if result[1]["id"] != id1 {
+		t.Errorf("expected oldest task second (id=%q), got id=%q", id1, result[1]["id"])
+	}
+}
+
+func TestListTasks_Integration_ExcludesDeleted(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	create := func(title string) string {
+		req, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks",
+			bytes.NewBufferString(`{"title":"`+title+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("POST /tasks: %v", err)
+		}
+		defer resp.Body.Close()
+		var result map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			t.Fatalf("decode create response: %v", err)
+		}
+		id, _ := result["id"].(string)
+		return id
+	}
+
+	id1 := create("Keep this")
+	id2 := create("Delete this")
+
+	// Delete id2
+	delReq, _ := http.NewRequest(http.MethodDelete, integServer.URL+"/tasks/"+id2, nil)
+	delReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE /tasks/%s: %v", id2, err)
+	}
+	delResp.Body.Close()
+
+	// List should only return id1
+	req, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks", nil)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(result))
+	}
+	if result[0]["id"] != id1 {
+		t.Errorf("expected id=%q, got id=%q", id1, result[0]["id"])
+	}
+}
+
+func TestGetTaskByID_Integration_Success(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create a task
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks",
+		bytes.NewBufferString(`{"title":"Fetchable task","description":"Some description","status":"in_progress"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	// Fetch by ID
+	req, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks/%s: %v", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["id"] != id {
+		t.Errorf("expected id=%q, got %v", id, result["id"])
+	}
+	if result["title"] != "Fetchable task" {
+		t.Errorf("expected title 'Fetchable task', got %v", result["title"])
+	}
+	if result["description"] != "Some description" {
+		t.Errorf("expected description 'Some description', got %v", result["description"])
+	}
+	if result["status"] != "in_progress" {
+		t.Errorf("expected status 'in_progress', got %v", result["status"])
+	}
+	if result["created_at"] == "" || result["created_at"] == nil {
+		t.Error("expected non-empty created_at")
+	}
+}
+
+func TestGetTaskByID_Integration_DeletedReturns404(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+	t.Cleanup(func() {
+		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	})
+
+	// Create and then delete a task
+	createReq, _ := http.NewRequest(http.MethodPost, integServer.URL+"/tasks",
+		bytes.NewBufferString(`{"title":"Soon deleted"}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	createResp, err := http.DefaultClient.Do(createReq)
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created map[string]any
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	id, _ := created["id"].(string)
+
+	delReq, _ := http.NewRequest(http.MethodDelete, integServer.URL+"/tasks/"+id, nil)
+	delReq.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE /tasks/%s: %v", id, err)
+	}
+	delResp.Body.Close()
+
+	// GET should now return 404
+	req, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks/"+id, nil)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks/%s: %v", id, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["error"] != "task not found" {
+		t.Errorf("expected error 'task not found', got %v", result["error"])
+	}
+}
+
+func TestGetTaskByID_Integration_NotFound(t *testing.T) {
+	if integServer == nil {
+		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
+	}
+
+	req, _ := http.NewRequest(
+		http.MethodGet,
+		integServer.URL+"/tasks/00000000-0000-0000-0000-000000000000",
+		nil,
+	)
+	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks/{id}: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result["error"] != "task not found" {
+		t.Errorf("expected error 'task not found', got %v", result["error"])
 	}
 }

@@ -139,3 +139,28 @@ func (s *Service) UpdateTask(ctx context.Context, in UpdateTaskInput) (domain.Ta
 
 	return s.repo.Update(ctx, task)
 }
+
+// DeleteTask soft-deletes a task. Returns domain.ErrNotFound if the task
+// does not exist or has already been deleted.
+func (s *Service) DeleteTask(ctx context.Context, id string) error {
+	return s.repo.Delete(ctx, id)
+}
+
+// ListTasks returns all active (non-deleted) tasks ordered by newest first.
+// Always returns a non-nil slice.
+func (s *Service) ListTasks(ctx context.Context) ([]domain.Task, error) {
+	tasks, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if tasks == nil {
+		return []domain.Task{}, nil
+	}
+	return tasks, nil
+}
+
+// GetTaskByID returns a single active task by ID. Returns domain.ErrNotFound
+// if the task does not exist or has been soft-deleted.
+func (s *Service) GetTaskByID(ctx context.Context, id string) (domain.Task, error) {
+	return s.repo.GetByID(ctx, id)
+}

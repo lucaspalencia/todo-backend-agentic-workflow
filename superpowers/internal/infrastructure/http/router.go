@@ -22,7 +22,10 @@ func Register(pool *pgxpool.Pool, apiKey string) nethttp.Handler {
 	taskHandler := handler.NewTaskHandler(taskSvc)
 
 	r.With(middleware.APIKey(apiKey)).Post("/tasks", taskHandler.Create)
+	r.With(middleware.APIKey(apiKey)).Get("/tasks", taskHandler.List)
+	r.With(middleware.APIKey(apiKey)).Get("/tasks/{id}", taskHandler.GetByID)
 	r.With(middleware.APIKey(apiKey)).Patch("/tasks/{id}", taskHandler.Update)
+	r.With(middleware.APIKey(apiKey)).Delete("/tasks/{id}", taskHandler.Delete)
 
 	return r
 }

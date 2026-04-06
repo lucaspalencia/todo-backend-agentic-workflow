@@ -15,6 +15,9 @@ type mockRepo struct {
 	returnErr  error
 	getByIDErr error
 	updateErr  error
+	deleteErr  error
+	listTasks  []domain.Task
+	listErr    error
 	storedTask domain.Task
 }
 
@@ -37,6 +40,20 @@ func (m *mockRepo) Update(_ context.Context, t domain.Task) (domain.Task, error)
 		return domain.Task{}, m.updateErr
 	}
 	return t, nil
+}
+
+func (m *mockRepo) Delete(_ context.Context, _ string) error {
+	return m.deleteErr
+}
+
+func (m *mockRepo) List(_ context.Context) ([]domain.Task, error) {
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	if m.listTasks != nil {
+		return m.listTasks, nil
+	}
+	return []domain.Task{}, nil
 }
 
 // --- CreateTask tests (unchanged) ---
@@ -315,6 +332,89 @@ func TestUpdateTask_NotFound(t *testing.T) {
 		ID:     "missing-id",
 		Status: strPtr("done"),
 	})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected domain.ErrNotFound, got %v", err)
+	}
+}
+
+// --- DeleteTask tests ---
+
+func TestDeleteTask_Success(t *testing.T) {
+	svc := apptask.NewService(&mockRepo{})
+
+	err := svc.DeleteTask(context.Background(), "some-id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteTask_NotFound(t *testing.T) {
+	svc := apptask.NewService(&mockRepo{deleteErr: domain.ErrNotFound})
+
+	err := svc.DeleteTask(context.Background(), "missing-id")
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected domain.ErrNotFound, got %v", err)
+	}
+}
+
+// --- ListTasks tests ---
+
+func TestListTasks_Empty(t *testing.T) {
+	svc := apptask.NewService(&mockRepo{})
+
+	tasks, err := svc.ListTasks(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tasks == nil {
+		t.Error("expected non-nil slice, got nil")
+	}
+	if len(tasks) != 0 {
+		t.Errorf("expected empty slice, got %d tasks", len(tasks))
+	}
+}
+
+func TestListTasks_ReturnsTasks(t *testing.T) {
+	stored := []domain.Task{
+		{ID: "a", Title: "First"},
+		{ID: "b", Title: "Second"},
+	}
+	svc := apptask.NewService(&mockRepo{listTasks: stored})
+
+	tasks, err := svc.ListTasks(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+	if tasks[0].ID != "a" || tasks[1].ID != "b" {
+		t.Errorf("unexpected task order: %v", tasks)
+	}
+}
+
+// --- GetTaskByID tests ---
+
+func TestGetTaskByID_Success(t *testing.T) {
+	stored := storedTask()
+	svc := apptask.NewService(&mockRepo{storedTask: stored})
+
+	got, err := svc.GetTaskByID(context.Background(), "test-id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != stored.ID {
+		t.Errorf("expected ID %q, got %q", stored.ID, got.ID)
+	}
+	if got.Title != stored.Title {
+		t.Errorf("expected title %q, got %q", stored.Title, got.Title)
+	}
+}
+
+func TestGetTaskByID_NotFound(t *testing.T) {
+	svc := apptask.NewService(&mockRepo{getByIDErr: domain.ErrNotFound})
+
+	_, err := svc.GetTaskByID(context.Background(), "missing-id")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
