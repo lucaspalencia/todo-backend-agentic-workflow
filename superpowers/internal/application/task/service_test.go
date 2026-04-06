@@ -357,6 +357,46 @@ func TestDeleteTask_NotFound(t *testing.T) {
 	}
 }
 
+// mockCommentDeleter records calls to DeleteByTaskID.
+type mockCommentDeleter struct {
+	called    bool
+	taskIDArg string
+	returnErr error
+}
+
+func (m *mockCommentDeleter) DeleteByTaskID(_ context.Context, taskID string) error {
+	m.called = true
+	m.taskIDArg = taskID
+	return m.returnErr
+}
+
+func TestDeleteTask_CallsCommentDeleter(t *testing.T) {
+	deleter := &mockCommentDeleter{}
+	svc := apptask.NewService(&mockRepo{})
+	svc.WithCommentDeleter(deleter)
+
+	err := svc.DeleteTask(context.Background(), "some-id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !deleter.called {
+		t.Error("expected commentDeleter.DeleteByTaskID to be called")
+	}
+	if deleter.taskIDArg != "some-id" {
+		t.Errorf("expected taskID %q, got %q", "some-id", deleter.taskIDArg)
+	}
+}
+
+func TestDeleteTask_NilCommentDeleter(t *testing.T) {
+	// DeleteTask must not panic when no comment deleter is set.
+	svc := apptask.NewService(&mockRepo{})
+
+	err := svc.DeleteTask(context.Background(), "some-id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 // --- ListTasks tests ---
 
 func TestListTasks_Empty(t *testing.T) {

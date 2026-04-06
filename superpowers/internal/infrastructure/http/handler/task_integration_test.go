@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS tasks (
     deleted_at  TIMESTAMPTZ
 )`
 
+const createCommentsSQL = `
+CREATE TABLE IF NOT EXISTS comments (
+    id         TEXT        PRIMARY KEY,
+    task_id    TEXT        NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    content    TEXT        NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+)`
+
 var (
 	integPool   *pgxpool.Pool
 	integServer *httptest.Server
@@ -52,6 +60,12 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	if _, err = pool.Exec(context.Background(), createCommentsSQL); err != nil {
+		fmt.Printf("create comments table: %v\n", err)
+		pool.Close()
+		os.Exit(1)
+	}
+
 	router := infrahttp.Register(pool, integTestAPIKey)
 	srv := httptest.NewServer(router)
 
@@ -60,7 +74,8 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	pool.Exec(context.Background(), "DROP TABLE IF EXISTS tasks") //nolint:errcheck
+	pool.Exec(context.Background(), "DROP TABLE IF EXISTS comments") //nolint:errcheck
+	pool.Exec(context.Background(), "DROP TABLE IF EXISTS tasks")    //nolint:errcheck
 	srv.Close()
 	pool.Close()
 
@@ -72,7 +87,7 @@ func TestCreateTask_Integration_Success(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	body := `{"title":"Buy groceries","description":"Milk and eggs"}`
@@ -146,7 +161,7 @@ func TestCreateTask_Integration_DuplicateSubmission(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	body := `{"title":"Same title","description":"Same description"}`
@@ -208,7 +223,7 @@ func TestUpdateTask_Integration_Success(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create a task to update
@@ -266,7 +281,7 @@ func TestUpdateTask_Integration_PartialUpdate(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create a task to update
@@ -353,7 +368,7 @@ func TestUpdateTask_Integration_ValidationError(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create a task first
@@ -405,7 +420,7 @@ func TestDeleteTask_Integration_Success(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create a task to delete
@@ -487,7 +502,7 @@ func TestDeleteTask_Integration_AlreadyDeleted(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create a task
@@ -530,10 +545,10 @@ func TestListTasks_Integration_Empty(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
-	integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+	integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 
 	req, _ := http.NewRequest(http.MethodGet, integServer.URL+"/tasks", nil)
 	req.Header.Set("Authorization", "Bearer "+integTestAPIKey)
@@ -562,7 +577,7 @@ func TestListTasks_Integration_NewestFirst(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	create := func(title string) string {
@@ -620,7 +635,7 @@ func TestListTasks_Integration_ExcludesDeleted(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	create := func(title string) string {
@@ -679,7 +694,7 @@ func TestGetTaskByID_Integration_Success(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create a task
@@ -737,7 +752,7 @@ func TestGetTaskByID_Integration_DeletedReturns404(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL not set — skipping integration test")
 	}
 	t.Cleanup(func() {
-		integPool.Exec(context.Background(), "TRUNCATE tasks") //nolint:errcheck
+		integPool.Exec(context.Background(), "TRUNCATE tasks CASCADE") //nolint:errcheck
 	})
 
 	// Create and then delete a task
